@@ -40,9 +40,8 @@ impl Default for Config {
             strip_errors: strip_of(panel::MODE_SOLID, AMBER, 255),
             strip_resilver: Strip { rgb2: PURPLE, ..strip_of(panel::MODE_LOOP, AMBER, 255) },
             strip_degraded: strip_of(panel::MODE_BREATH, AMBER, 255),
-            strip_locked: strip_of(panel::MODE_BREATH, RED, 255),
-            // Loop between red and black: a hard flash, unlike the breathing states.
-            strip_fault: strip_of(panel::MODE_LOOP, RED, 255),
+            strip_locked: Strip { rgb2: AMBER, ..strip_of(panel::MODE_LOOP, RED, 255) },
+            strip_fault: strip_of(panel::MODE_BREATH, RED, 255),
         }
     }
 }
@@ -125,8 +124,8 @@ pub fn parse(text: &str) -> Result<Config, String> {
             "strip_errors" => c.strip_errors = strip(value, panel::MODE_SOLID).map_err(err)?,
             "strip_resilver" => c.strip_resilver = strip(value, panel::MODE_LOOP).map_err(err)?,
             "strip_degraded" => c.strip_degraded = strip(value, panel::MODE_BREATH).map_err(err)?,
-            "strip_locked" => c.strip_locked = strip(value, panel::MODE_BREATH).map_err(err)?,
-            "strip_fault" => c.strip_fault = strip(value, panel::MODE_LOOP).map_err(err)?,
+            "strip_locked" => c.strip_locked = strip(value, panel::MODE_LOOP).map_err(err)?,
+            "strip_fault" => c.strip_fault = strip(value, panel::MODE_BREATH).map_err(err)?,
             _ => match Led::from_name(key) {
                 Some(led) if Led::DISKS.contains(&led) => c.slots.push((led, value.to_string())),
                 _ => return Err(err(format!("unknown key: {key}"))),
@@ -179,12 +178,12 @@ mod tests {
         assert_eq!(c.strip_resilver, Strip { mode: panel::MODE_LOOP, brightness: 7, rgb: [1, 2, 3], rgb2: [4, 5, 6] });
         assert_eq!(c.interval_ms, 20);
         // An explicit mode word overrides the key's usual mode.
-        let c = parse("strip_fault = breath 255 0 0 160\nstrip_ok = loop 1 2 3 4 5 6 7\n").unwrap();
-        assert_eq!(c.strip_fault, strip_of(panel::MODE_BREATH, RED, 160));
-        assert_eq!(c.strip_ok.mode, panel::MODE_LOOP);
-        // A config from before fault flashed still parses: one loop colour flashes.
-        let c = parse("strip_fault = 255 0 0 160\n").unwrap();
+        let c = parse("strip_fault = loop 255 0 0 160\nstrip_ok = loop 1 2 3 4 5 6 7\n").unwrap();
         assert_eq!(c.strip_fault, strip_of(panel::MODE_LOOP, RED, 160));
+        assert_eq!(c.strip_ok.mode, panel::MODE_LOOP);
+        // The first shipped config's fault line still means breathing red.
+        let c = parse("strip_fault = 255 0 0 160\n").unwrap();
+        assert_eq!(c.strip_fault, strip_of(panel::MODE_BREATH, RED, 160));
     }
 
     #[test]

@@ -217,7 +217,7 @@ fn main() -> ExitCode {
                 }
                 None => {
                     if zfs_ok {
-                        eprintln!("zpool or zfs failed; pool health unknown");
+                        eprintln!("zpool status failed; pool health unknown");
                     }
                     zfs_ok = false;
                 }

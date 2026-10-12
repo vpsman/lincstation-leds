@@ -105,10 +105,11 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// `None` if `zpool` or `zfs` could not be run.
+/// `None` if `zpool` could not be run. The key check is skipped where `zfs get
+/// keystatus` fails, such as on ZFS without encryption support.
 pub fn query() -> Option<Health> {
     let mut h = parse(&run("zpool", &["status", "-LP"])?);
-    if any_locked(&run("zfs", &["get", "-H", "-o", "value", "keystatus"])?) {
+    if run("zfs", &["get", "-H", "-o", "value", "keystatus"]).is_some_and(|k| any_locked(&k)) {
         h.level = h.level.max(Level::Locked);
     }
     Some(h)
