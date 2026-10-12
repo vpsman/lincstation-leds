@@ -59,12 +59,14 @@ fn find_nic() -> Option<String> {
 struct Disk {
     name: String,
     led: Led,
+    stat: Option<Rereader>,
     prev: Option<u64>,
     /// Showing the activity colour in this sample.
     blink: bool,
 }
 
-fn map_disks(cfg: &config::Config, old: &[Disk], announce: bool) -> Vec<Disk> {
+/// Mapped disks, keeping the counters of those already known.
+fn map_disks(cfg: &config::Config, mut old: Vec<Disk>, announce: bool) -> Vec<Disk> {
     let mut out = Vec::new();
     for (name, path) in disks::scan() {
         let led = disks::led_for_path(&path, &cfg.slots);
@@ -75,8 +77,13 @@ fn map_disks(cfg: &config::Config, old: &[Disk], announce: bool) -> Vec<Disk> {
             }
         }
         let Some(led) = led else { continue };
-        let prev = old.iter().find(|d| d.name == name && d.led == led).and_then(|d| d.prev);
-        out.push(Disk { name, led, prev, blink: false });
+        match old.iter().position(|d| d.name == name && d.led == led) {
+            Some(i) => out.push(old.swap_remove(i)),
+            None => {
+                let stat = Rereader::open(&format!("/sys/block/{name}/stat")).ok();
+                out.push(Disk { name, led, stat, prev: None, blink: false });
+            }
+        }
     }
     out
 }
@@ -173,17 +180,10 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut diskstats = match Rereader::open("/proc/diskstats") {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("/proc/diskstats: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-
     let interval = Duration::from_millis(cfg.interval_ms);
     let zfs_interval = Duration::from_secs(cfg.zfs_interval_s);
-    let mut disks = map_disks(&cfg, &[], true);
+    let mut disks = map_disks(&cfg, Vec::new(), true);
+    let mut zfs_monitor = zfs::Monitor::new(cfg.zfs_key_check);
     let mut bad_disks: HashSet<String> = HashSet::new();
     let mut health: Option<zfs::Health> = None;
     let mut level = zfs::Level::Ok;
@@ -201,8 +201,8 @@ fn main() -> ExitCode {
 
         if last_zfs.is_none_or(|t| now - t >= zfs_interval) {
             last_zfs = Some(now);
-            disks = map_disks(&cfg, &disks, false);
-            match zfs::query() {
+            disks = map_disks(&cfg, std::mem::take(&mut disks), false);
+            match zfs_monitor.poll(now) {
                 Some(h) => {
                     if !zfs_ok {
                         eprintln!("zpool status works again");
@@ -226,9 +226,8 @@ fn main() -> ExitCode {
 
         let mut frame = Frame::default();
         frame.set(Led::Power, cfg.power);
-        let table = diskstats.read().unwrap_or("");
         for d in &mut disks {
-            let ios = stats::disk_ios(table, &d.name);
+            let ios = d.stat.as_mut().and_then(|s| s.read().ok().and_then(stats::disk_ios));
             let active = matches!((d.prev, ios), (Some(p), Some(c)) if stats::delta(p, c) > 0);
             d.prev = ios;
             d.blink = active && !d.blink;

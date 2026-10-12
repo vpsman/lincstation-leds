@@ -16,20 +16,13 @@ pub fn delta(prev: u64, cur: u64) -> u64 {
     }
 }
 
-/// Completed I/O operations (reads + writes + discards + flushes) for `name`,
-/// or `None` if the disk is not listed.
-pub fn disk_ios(diskstats: &str, name: &str) -> Option<u64> {
-    for line in diskstats.lines() {
-        let mut f = line.split_ascii_whitespace();
-        if f.nth(2) != Some(name) {
-            continue;
-        }
-        // After the name: 0 reads, 4 writes, 11 discards, 15 flushes.
-        let rest: Vec<u64> = f.map(|v| v.parse().unwrap_or(0)).collect();
-        let at = |i: usize| rest.get(i).copied().unwrap_or(0);
-        return Some(at(0).wrapping_add(at(4)).wrapping_add(at(11)).wrapping_add(at(15)));
-    }
-    None
+/// Completed I/O operations (reads + writes + discards + flushes) from the
+/// contents of `/sys/block/<disk>/stat`, or `None` if it does not parse.
+pub fn disk_ios(stat: &str) -> Option<u64> {
+    // Fields: 0 reads, 4 writes, 11 discards, 15 flushes (the last two since Linux 4.18 and 5.5).
+    let f: Vec<u64> = stat.split_ascii_whitespace().map(|v| v.parse().ok()).collect::<Option<_>>()?;
+    let at = |i: usize| f.get(i).copied().unwrap_or(0);
+    (f.len() >= 11).then(|| at(0).wrapping_add(at(4)).wrapping_add(at(11)).wrapping_add(at(15)))
 }
 
 /// A file that is re-read from the start on every sample, reusing one buffer.
@@ -76,33 +69,27 @@ mod tests {
         assert_eq!(delta(u64::MAX - 1, 3), 5);
     }
 
-    const DISKSTATS: &str = "\
- 259       0 nvme0n1 1000 10 80000 500 2000 20 160000 900 0 1200 1400 30 0 2400 5 40 7
- 259       1 nvme0n1p1 900 10 72000 450 1900 20 150000 850 0 1100 1300 0 0 0 0 0 0
-   8       0 sda 11 0 88 3 22 0 176 4 0 6 7
-   8      16 sdb 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
-";
-
     #[test]
-    fn diskstats_full_line() {
+    fn stat_full() {
         // reads 1000 + writes 2000 + discards 30 + flushes 40
-        assert_eq!(disk_ios(DISKSTATS, "nvme0n1"), Some(3070));
+        let stat = "    1000       10    80000      500     2000       20   160000      900        0     1200     1400       30        0     2400        5       40        7\n";
+        assert_eq!(disk_ios(stat), Some(3070));
     }
 
     #[test]
-    fn diskstats_old_kernel_without_discards() {
-        assert_eq!(disk_ios(DISKSTATS, "sda"), Some(33));
+    fn stat_old_kernel_without_discards() {
+        assert_eq!(disk_ios("11 0 88 3 22 0 176 4 0 6 7\n"), Some(33));
     }
 
     #[test]
-    fn diskstats_exact_name_only() {
-        assert_eq!(disk_ios(DISKSTATS, "nvme0n1p1"), Some(2800));
-        assert_eq!(disk_ios(DISKSTATS, "nvme0"), None);
-        assert_eq!(disk_ios(DISKSTATS, "sdc"), None);
+    fn stat_field_positions() {
+        assert_eq!(disk_ios("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17"), Some(1 + 5 + 12 + 16));
     }
 
     #[test]
-    fn diskstats_field_positions() {
-        assert_eq!(disk_ios(DISKSTATS, "sdb"), Some(1 + 5 + 12 + 16));
+    fn stat_garbage() {
+        assert_eq!(disk_ios(""), None);
+        assert_eq!(disk_ios("1 2 3"), None);
+        assert_eq!(disk_ios("1 2 x 4 5 6 7 8 9 10 11"), None);
     }
 }

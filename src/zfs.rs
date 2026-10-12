@@ -1,6 +1,11 @@
 //! ZFS health from `zpool status -LP` and `zfs get keystatus`.
 
+use std::fs;
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+/// `zpool status` runs at least this often, and sooner when a pool state changes.
+const FULL_INTERVAL: Duration = Duration::from_secs(60);
 
 /// What the strip shows, from least to most severe. The worst pool wins.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,7 +23,7 @@ pub enum Level {
     Fault,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Health {
     pub level: Level,
     /// Devices (partitions as listed, e.g. `sda1`) whose own state is unhealthy.
@@ -105,14 +110,74 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// `None` if `zpool` could not be run. The key check is skipped where `zfs get
-/// keystatus` fails, such as on ZFS without encryption support.
-pub fn query() -> Option<Health> {
-    let mut h = parse(&run("zpool", &["status", "-LP"])?);
-    if run("zfs", &["get", "-H", "-o", "value", "keystatus"]).is_some_and(|k| any_locked(&k)) {
-        h.level = h.level.max(Level::Locked);
+/// Pool name and state from `/proc/spl/kstat/zfs/<pool>/state`, sorted, or `None`
+/// where OpenZFS does not provide these files.
+fn kstat_states() -> Option<Vec<(String, String)>> {
+    let mut out: Vec<(String, String)> = fs::read_dir("/proc/spl/kstat/zfs")
+        .ok()?
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let state = fs::read_to_string(e.path().join("state")).ok()?;
+            Some((e.file_name().to_string_lossy().into_owned(), state.trim().to_string()))
+        })
+        .collect();
+    out.sort();
+    Some(out)
+}
+
+/// What to run this round: (`zpool status`, key check).
+fn plan(
+    prev: &[(String, String)],
+    cur: Option<&[(String, String)]>,
+    since_full: Option<Duration>,
+    keys: Option<bool>,
+) -> (bool, bool) {
+    let set_changed = cur.is_some_and(|c| !c.iter().map(|p| &p.0).eq(prev.iter().map(|p| &p.0)));
+    let full = match cur {
+        None => true,
+        Some(c) => c != prev || since_full.is_none_or(|d| d >= FULL_INTERVAL),
+    };
+    // Keys: at startup, while any are locked, and after a pool appears or goes.
+    let keys = keys != Some(false) || set_changed;
+    (full, keys)
+}
+
+/// Polls ZFS cheaply: the kstat state files every call, `zpool status` only when a
+/// state changed or a minute has passed, the key check as `plan` decides.
+pub struct Monitor {
+    key_check: bool,
+    pools: Vec<(String, String)>,
+    last_full: Option<Instant>,
+    health: Option<Health>,
+    /// `None` until checked, then whether any key is unloaded.
+    locked: Option<bool>,
+}
+
+impl Monitor {
+    pub fn new(key_check: bool) -> Monitor {
+        Monitor { key_check, pools: Vec::new(), last_full: None, health: None, locked: None }
     }
-    Some(h)
+
+    /// `None` if `zpool status` could not be run.
+    pub fn poll(&mut self, now: Instant) -> Option<Health> {
+        let cur = kstat_states();
+        let since_full = self.last_full.map(|t| now - t);
+        let (full, keys) = plan(&self.pools, cur.as_deref(), since_full, self.locked);
+        if full {
+            self.health = run("zpool", &["status", "-LP"]).map(|s| parse(&s));
+            self.last_full = Some(now);
+        }
+        if keys && self.key_check {
+            // Where `zfs get keystatus` fails, as on ZFS without encryption, nothing is locked.
+            self.locked = Some(run("zfs", &["get", "-H", "-o", "value", "keystatus"]).is_some_and(|k| any_locked(&k)));
+        }
+        self.pools = cur.unwrap_or_default();
+        let mut h = self.health.clone()?;
+        if self.locked == Some(true) {
+            h.level = h.level.max(Level::Locked);
+        }
+        Some(h)
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +260,53 @@ errors: No known data errors
     #[test]
     fn empty_output() {
         assert_eq!(parse("no pools available\n"), Health::default());
+    }
+
+    fn pools(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect()
+    }
+
+    #[test]
+    fn plan_first_round_runs_everything() {
+        let cur = pools(&[("hddpool", "ONLINE")]);
+        assert_eq!(plan(&[], Some(&cur), None, None), (true, true));
+    }
+
+    #[test]
+    fn plan_steady_state_is_quiet() {
+        let p = pools(&[("hddpool", "ONLINE"), ("vmspool", "ONLINE")]);
+        assert_eq!(plan(&p, Some(&p), Some(Duration::from_secs(10)), Some(false)), (false, false));
+    }
+
+    #[test]
+    fn plan_full_status_every_minute() {
+        let p = pools(&[("hddpool", "ONLINE")]);
+        assert_eq!(plan(&p, Some(&p), Some(Duration::from_secs(60)), Some(false)), (true, false));
+    }
+
+    #[test]
+    fn plan_state_change_runs_status_at_once() {
+        let prev = pools(&[("hddpool", "ONLINE")]);
+        let cur = pools(&[("hddpool", "DEGRADED")]);
+        assert_eq!(plan(&prev, Some(&cur), Some(Duration::from_secs(10)), Some(false)), (true, false));
+    }
+
+    #[test]
+    fn plan_import_rechecks_keys() {
+        let prev = pools(&[("hddpool", "ONLINE")]);
+        let cur = pools(&[("backup", "ONLINE"), ("hddpool", "ONLINE")]);
+        assert_eq!(plan(&prev, Some(&cur), Some(Duration::from_secs(10)), Some(false)), (true, true));
+    }
+
+    #[test]
+    fn plan_keys_rechecked_while_locked() {
+        let p = pools(&[("hddpool", "ONLINE")]);
+        assert_eq!(plan(&p, Some(&p), Some(Duration::from_secs(10)), Some(true)), (false, true));
+    }
+
+    #[test]
+    fn plan_without_kstat_runs_status_every_round() {
+        assert_eq!(plan(&[], None, Some(Duration::from_secs(10)), Some(false)), (true, false));
     }
 
     #[test]

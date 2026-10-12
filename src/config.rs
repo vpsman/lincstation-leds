@@ -12,6 +12,8 @@ pub struct Config {
     pub net_threshold: u64,
     pub interval_ms: u64,
     pub zfs_interval_s: u64,
+    /// Show unloaded encryption keys on the strip.
+    pub zfs_key_check: bool,
     pub power: Colour,
     /// What a healthy disk LED blinks to on I/O; it is steady white when idle.
     pub disk_activity: Colour,
@@ -33,6 +35,7 @@ impl Default for Config {
             net_threshold: 16384,
             interval_ms: 100,
             zfs_interval_s: 10,
+            zfs_key_check: true,
             power: panel::WHITE,
             disk_activity: panel::OFF_C,
             strip_ok: strip_of(panel::MODE_SOLID, PURPLE, 12),
@@ -117,6 +120,13 @@ pub fn parse(text: &str) -> Result<Config, String> {
             "net_threshold" => c.net_threshold = num(value).map_err(err)?,
             "interval_ms" => c.interval_ms = num(value).map_err(err)?.clamp(20, 5000),
             "zfs_interval_s" => c.zfs_interval_s = num(value).map_err(err)?.max(1),
+            "zfs_key_check" => {
+                c.zfs_key_check = match value {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err(err(format!("zfs_key_check: on or off: {value}"))),
+                }
+            }
             "power" => c.power = colour(value).map_err(err)?,
             "disk_activity" => c.disk_activity = colour(value).map_err(err)?,
             "strip_ok" => c.strip_ok = strip(value, panel::MODE_SOLID).map_err(err)?,
@@ -167,6 +177,7 @@ mod tests {
              disk_activity = white+red\n\
              strip_ok = 0x40 0 0xff 16\n\
              strip_resilver = 1 2 3 4 5 6 7\n\
+             zfs_key_check = off\n\
              interval_ms = 1\n",
         )
         .unwrap();
@@ -177,6 +188,7 @@ mod tests {
         assert_eq!(c.strip_ok, strip_of(panel::MODE_SOLID, [0x40, 0, 0xff], 16));
         assert_eq!(c.strip_resilver, Strip { mode: panel::MODE_LOOP, brightness: 7, rgb: [1, 2, 3], rgb2: [4, 5, 6] });
         assert_eq!(c.interval_ms, 20);
+        assert!(!c.zfs_key_check);
         // An explicit mode word overrides the key's usual mode.
         let c = parse("strip_fault = loop 255 0 0 160\nstrip_ok = loop 1 2 3 4 5 6 7\n").unwrap();
         assert_eq!(c.strip_fault, strip_of(panel::MODE_LOOP, RED, 160));
