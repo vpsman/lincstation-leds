@@ -79,7 +79,7 @@ const fn strip_of(mode: u8, rgb: [u8; 3], brightness: u8) -> Strip {
 }
 
 /// "[MODE] R G B BRIGHTNESS", or "loop R G B R G B BRIGHTNESS". MODE is solid, breath
-/// or loop, and defaults to the key's usual mode.
+/// or loop, and defaults to the key's usual mode. Loop with one colour flashes it.
 fn strip(s: &str, default_mode: u8) -> Result<Strip, String> {
     let mut words = s.split_ascii_whitespace().peekable();
     let named = match words.peek() {
@@ -97,8 +97,8 @@ fn strip(s: &str, default_mode: u8) -> Result<Strip, String> {
         (panel::MODE_LOOP, &[r, g, b, r2, g2, b2, brightness]) => {
             Ok(Strip { rgb2: [r2, g2, b2], ..strip_of(mode, [r, g, b], brightness) })
         }
-        (panel::MODE_LOOP, _) => Err(format!("expected R G B R G B BRIGHTNESS: {s}")),
         (_, &[r, g, b, brightness]) => Ok(strip_of(mode, [r, g, b], brightness)),
+        (panel::MODE_LOOP, _) => Err(format!("expected R G B [R G B] BRIGHTNESS: {s}")),
         _ => Err(format!("expected R G B BRIGHTNESS: {s}")),
     }
 }
@@ -182,6 +182,9 @@ mod tests {
         let c = parse("strip_fault = breath 255 0 0 160\nstrip_ok = loop 1 2 3 4 5 6 7\n").unwrap();
         assert_eq!(c.strip_fault, strip_of(panel::MODE_BREATH, RED, 160));
         assert_eq!(c.strip_ok.mode, panel::MODE_LOOP);
+        // A config from before fault flashed still parses: one loop colour flashes.
+        let c = parse("strip_fault = 255 0 0 160\n").unwrap();
+        assert_eq!(c.strip_fault, strip_of(panel::MODE_LOOP, RED, 160));
     }
 
     #[test]
@@ -189,8 +192,8 @@ mod tests {
         assert_eq!(parse("\nnetwork = x\n").unwrap_err(), "line 2: unknown key: network");
         assert!(parse("strip_ok = 1 2 3\n").unwrap_err().contains("R G B"));
         assert!(parse("power = purple\n").unwrap_err().contains("expected white"));
-        assert!(parse("strip_resilver = 1 2 3 4\n").unwrap_err().contains("R G B R G B"));
-        assert!(parse("strip_ok = loop 1 2 3 4\n").unwrap_err().contains("R G B R G B"));
+        assert!(parse("strip_resilver = 1 2 3 4 5\n").unwrap_err().contains("R G B [R G B]"));
+        assert!(parse("strip_ok = 1 2 3 4 5 6 7\n").unwrap_err().contains("R G B BRIGHTNESS"));
         assert!(parse("strip_ok = blink 1 2 3 4\n").unwrap_err().contains("not a number: blink"));
         assert!(parse("strip_ok = 1 2 3 256\n").unwrap_err().contains("0-255"));
     }
