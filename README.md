@@ -63,7 +63,7 @@ The disk LED mapping depends on which slots your drives are in. At startup the d
 journalctl -u lincstation-leds -b | grep disk
 ```
 
-For a drive marked `unmapped`, find its root port in the logged path (`/sys/devices/pci0000:00/0000:00:1c.6/...` means `0000:00:1c.6`), then add a line for the slot it sits in, for example `nvme2 = 0000:00:1c.6`. The SATA bays are preset to `ata1` for HDD 0 and `ata2` for HDD 1. The M.2 slots are preset to root ports `1c.3`, `1c.6`, `1d.0` and `1d.1` for NVMe 1 to 4, in port order, which is not yet confirmed against the physical slots.
+For a drive marked `unmapped`, find its root port in the logged path (`/sys/devices/pci0000:00/0000:00:1c.6/...` means `0000:00:1c.6`), then add a line for the slot it sits in, for example `nvme2 = 0000:00:1c.6`. The SATA bays are preset to `ata1` for HDD 0 and `ata2` for HDD 1, and the M.2 slots to root ports `1c.3`, `1c.6`, `1d.0` and `1d.1` for NVMe 1 to 4. The SATA bays and NVMe 1 and 2 are confirmed on a real unit; NVMe 3 and 4 assume the port order continues.
 
 ## Register map
 
