@@ -8,10 +8,19 @@ A small daemon for the front-panel LEDs and RGB strip of the LincPlus LincStatio
 
 | LED | Meaning |
 |---|---|
-| Disk (HDD 0/1, NVMe 1–4) | Steady white while healthy. Blinks to `disk_activity` (off by default, or pink) on I/O. Steady orange while the disk's ZFS pool is not ONLINE, or the disk itself is faulted or removed. Empty slots stay dark. |
+| Disk (HDD 0/1, NVMe 1–4) | Steady white while healthy. Blinks to `disk_activity` (off by default, or pink) on I/O. Steady orange when ZFS reports that disk as faulted, removed or unavailable, so the LED points at the disk to replace. Empty slots stay dark. |
 | Network | Steady white while the link is up. Flickers on traffic above `net_threshold` bytes per second. Red when the link is down. |
 | Power | The `power` colour from the config file, white by default. |
-| RGB strip | `strip_ok` (dim purple by default) while every pool is ONLINE, `strip_fault` (breathing red) otherwise. |
+| RGB strip | The worst state across all pools, as in the next table. |
+
+| Strip | Pool state |
+|---|---|
+| Dim purple, solid | All pools ONLINE |
+| Purple, breathing | A scrub is running |
+| Amber, solid | ONLINE, but read, write, checksum or data errors have been counted |
+| Amber ↔ purple loop | A resilver is running |
+| Amber, breathing | A pool is DEGRADED |
+| Red, breathing | A pool is FAULTED, UNAVAIL or SUSPENDED, or an encryption key is not loaded |
 
 The documented registers drive two elements per status LED, white and red. On the test unit the red looks orange, and white plus red looks pink. Whether the controller can show any other colour is untested.
 
@@ -22,7 +31,7 @@ When the daemon stops (SIGTERM or SIGINT), it turns the disk and network LEDs of
 - **Bus discovery.** At startup the daemon probes every `/dev/i2c-*` for the controller at SMBus address `0x26`, SMBus adapters first, using the same quick-write probe as `i2cdetect`. The bus number can change between boots, so it is never hardcoded.
 - **Disk mapping.** Each drive is matched to its LED by its sysfs path: the SATA port for the 2.5" bays, the PCIe root port for the M.2 slots. Kernel names like `nvme0n1` can swap between boots, so the daemon doesn't rely on them.
 - **Activity.** Disk activity comes from `/proc/diskstats` and network activity from `/sys/class/net/<if>/statistics`, both as counter deltas with wraparound handled. The daemon samples every 100 ms and writes to the bus only when an LED changes. It re-writes every register once a minute.
-- **ZFS health.** Read from `zpool status -LP` every 10 seconds.
+- **ZFS health.** Read from `zpool status -LP` and `zfs get keystatus` every 10 seconds.
 - **Talking to the controller.** It uses the i2c-dev SMBus ioctls directly, without calling `i2cset`. The only dependency is `libc`.
 
 ## Build and install on the NAS

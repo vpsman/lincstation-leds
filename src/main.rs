@@ -1,11 +1,11 @@
 //! LED daemon for the LincStation N2 front panel.
 //!
 //! Disk LEDs are steady white while healthy and blink to `disk_activity` (off by
-//! default) on I/O. They turn steady red (orange on this panel) while the disk's
-//! ZFS pool is unhealthy. The network LED is steady white while
+//! default) on I/O. A disk that ZFS reports as faulted, removed or unavailable
+//! turns steady red (orange on this panel). The network LED is steady white while
 //! the link is up, flickers on traffic and is red when the link is down. The power
-//! LED shows the configured colour. The RGB strip shows `strip_ok` while all pools
-//! are ONLINE and `strip_fault` otherwise.
+//! LED shows the configured colour. The RGB strip shows the worst pool's state:
+//! ok, scrub, errors, resilver, degraded or fault (which includes a locked key).
 //!
 //! On SIGTERM or SIGINT the daemon leaves the panel in a defined state: disk and
 //! network LEDs off, power LED white, strip off, no LED blinking.
@@ -186,7 +186,7 @@ fn main() -> ExitCode {
     let mut disks = map_disks(&cfg, &[], true);
     let mut bad_disks: HashSet<String> = HashSet::new();
     let mut health: Option<zfs::Health> = None;
-    let mut pools_bad = false;
+    let mut level = zfs::Level::Ok;
     let mut zfs_ok = true;
     let mut last_zfs: Option<Instant> = None;
     let mut last_force: Option<Instant> = None;
@@ -208,16 +208,16 @@ fn main() -> ExitCode {
                         eprintln!("zpool status works again");
                     }
                     zfs_ok = true;
-                    pools_bad = !h.bad_pools.is_empty() || !h.bad_devices.is_empty();
+                    level = h.level;
                     bad_disks = h.bad_devices.iter().map(|d| disks::parent_disk(d)).collect();
                     if health.as_ref() != Some(&h) {
-                        eprintln!("zfs: pools not ONLINE {:?}, unhealthy devices {:?}", h.bad_pools, h.bad_devices);
+                        eprintln!("zfs: {:?}, unhealthy devices {:?}", h.level, h.bad_devices);
                         health = Some(h);
                     }
                 }
                 None => {
                     if zfs_ok {
-                        eprintln!("zpool status failed; pool health unknown");
+                        eprintln!("zpool or zfs failed; pool health unknown");
                     }
                     zfs_ok = false;
                 }
@@ -244,7 +244,14 @@ fn main() -> ExitCode {
         if let Some(n) = net.as_mut() {
             frame.set(Led::Network, n.colour(elapsed, cfg.net_threshold));
         }
-        let strip = if pools_bad { cfg.strip_fault } else { cfg.strip_ok };
+        let strip = match level {
+            zfs::Level::Ok => cfg.strip_ok,
+            zfs::Level::Scrub => cfg.strip_scrub,
+            zfs::Level::Errors => cfg.strip_errors,
+            zfs::Level::Resilver => cfg.strip_resilver,
+            zfs::Level::Degraded => cfg.strip_degraded,
+            zfs::Level::Fault => cfg.strip_fault,
+        };
 
         // Re-assert every register now and then, and after a failed write.
         let result = if io_failing || last_force.is_none_or(|t| now - t >= FULL_REFRESH) {

@@ -14,8 +14,10 @@ const BLINK: [u8; 8] = [0x50, 0x52, 0x54, 0x56, 0x58, 0x5A, 0x5C, 0x5E];
 const STRIP_MODE: u8 = 0x90;
 const STRIP_BRIGHTNESS: u8 = 0x91;
 const STRIP_RGB: u8 = 0x92; // 0x92 red, 0x93 green, 0x94 blue
+const STRIP_LOOP: u8 = 0x95; // loop colour 1 at 0x95-0x97, colour 2 at 0x98-0x9A
 pub const MODE_SOLID: u8 = 0;
 pub const MODE_BREATH: u8 = 1;
+pub const MODE_LOOP: u8 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Led {
@@ -81,9 +83,11 @@ pub struct Strip {
     pub mode: u8,
     pub brightness: u8,
     pub rgb: [u8; 3],
+    /// Second loop colour; loop mode alternates `rgb` and `rgb2`.
+    pub rgb2: [u8; 3],
 }
 
-pub const STRIP_OFF: Strip = Strip { mode: MODE_SOLID, brightness: 0, rgb: [0, 0, 0] };
+pub const STRIP_OFF: Strip = Strip { mode: MODE_SOLID, brightness: 0, rgb: [0; 3], rgb2: [0; 3] };
 
 /// Desired state of every LED, as register bitmasks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -159,8 +163,13 @@ impl Panel {
         self.shown = *frame;
         if self.strip != Some(strip) {
             self.strip = None; // stays unknown if a write below fails
-            for (i, v) in strip.rgb.iter().enumerate() {
-                self.dev.write_byte(STRIP_RGB + i as u8, *v)?;
+            let (base, colours) = if strip.mode == MODE_LOOP {
+                (STRIP_LOOP, [strip.rgb, strip.rgb2].concat())
+            } else {
+                (STRIP_RGB, strip.rgb.to_vec())
+            };
+            for (i, v) in colours.iter().enumerate() {
+                self.dev.write_byte(base + i as u8, *v)?;
             }
             self.dev.write_byte(STRIP_BRIGHTNESS, strip.brightness)?;
             self.dev.write_byte(STRIP_MODE, strip.mode)?;
