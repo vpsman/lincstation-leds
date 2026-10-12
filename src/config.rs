@@ -26,7 +26,7 @@ impl Default for Config {
             interval_ms: 100,
             zfs_interval_s: 10,
             power: panel::WHITE,
-            strip_ok: Strip { mode: panel::MODE_SOLID, brightness: 32, rgb: [96, 0, 255] },
+            strip_ok: Strip { mode: panel::MODE_SOLID, brightness: 12, rgb: [160, 0, 255] },
             strip_fault: Strip { mode: panel::MODE_BREATH, brightness: 160, rgb: [255, 0, 0] },
         }
     }
@@ -97,6 +97,7 @@ mod tests {
         let c = parse(include_str!("../debian/lincstation-leds.conf")).unwrap();
         assert_eq!(c.slots[0], (Led::Hdd0, "0000:00:17.0/ata1".to_string()));
         assert_eq!(c.slots[1], (Led::Hdd1, "0000:00:17.0/ata2".to_string()));
+        assert_eq!(c.slots[2], (Led::Nvme1, "0000:00:1c.3".to_string()));
         assert_eq!(c.net_iface, None);
         assert_eq!(c.strip_ok, Config::default().strip_ok);
     }

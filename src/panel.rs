@@ -65,7 +65,7 @@ impl Led {
 }
 
 /// The two documented colour elements of a status LED. On pve3 red alone looks
-/// orange and white plus red looks close to white. Other colours are untested.
+/// orange and white plus red looks pink. Other colours are untested.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Colour {
     pub white: bool,
