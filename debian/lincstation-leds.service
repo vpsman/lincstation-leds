@@ -1,0 +1,18 @@
+[Unit]
+Description=LincStation N2 front-panel LEDs
+After=systemd-modules-load.service zfs.target
+Wants=systemd-modules-load.service
+
+[Service]
+ExecStart=/usr/sbin/lincstation-leds
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=5
+Nice=10
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

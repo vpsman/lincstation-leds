@@ -1,0 +1,34 @@
+[package]
+name = "lincstation-leds"
+version = "0.1.0"
+edition = "2021"
+description = "Front-panel LED and RGB strip daemon for the LincStation N2"
+license = "MIT"
+rust-version = "1.82"
+
+[dependencies]
+libc = "0.2.190"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[package.metadata.deb]
+maintainer = "vpsman <17223843+vpsman@users.noreply.github.com>"
+section = "admin"
+priority = "optional"
+depends = ""
+extended-description = """\
+Drives the LincStation N2 status LEDs (disk activity, ZFS health, network \
+link and traffic) and the RGB strip over SMBus address 0x26."""
+assets = [
+    ["target/release/lincstation-leds", "usr/sbin/", "755"],
+    ["debian/lincstation-leds.conf", "etc/", "644"],
+    ["debian/modules-load.conf", "etc/modules-load.d/lincstation-leds.conf", "644"],
+]
+conf-files = ["/etc/lincstation-leds.conf"]
+maintainer-scripts = "debian/"
+systemd-units = { unit-name = "lincstation-leds", enable = true, start = true, restart-after-upgrade = true, stop-on-upgrade = false }
