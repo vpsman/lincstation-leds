@@ -16,11 +16,12 @@ A small daemon for the front-panel LEDs and RGB strip of the LincPlus LincStatio
 | Strip | Pool state |
 |---|---|
 | Dim purple, solid | All pools ONLINE |
-| Purple, breathing | A scrub is running |
-| Amber, solid | ONLINE, but read, write, checksum or data errors have been counted |
-| Amber ↔ purple loop | A resilver is running |
-| Amber, breathing | A pool is DEGRADED |
-| Red, breathing | A pool is FAULTED, UNAVAIL or SUSPENDED, or an encryption key is not loaded |
+| Dim purple, breathing | A scrub is running |
+| Amber, solid, full brightness | ONLINE, but read, write, checksum or data errors have been counted |
+| Amber ↔ purple loop, full brightness | A resilver is running |
+| Amber, breathing, full brightness | A pool is DEGRADED |
+| Red, breathing, full brightness | An encryption key is not loaded |
+| Red flashing (loop red ↔ off), full brightness | A pool is FAULTED, UNAVAIL or SUSPENDED |
 
 The documented registers drive two elements per status LED, white and red. On the test unit the red looks orange, and white plus red looks pink. Whether the controller can show any other colour is untested.
 
@@ -30,6 +31,7 @@ When the daemon stops (SIGTERM or SIGINT), it turns the disk and network LEDs of
 
 - **Bus discovery.** At startup the daemon probes every `/dev/i2c-*` for the controller at SMBus address `0x26`, SMBus adapters first, using the same quick-write probe as `i2cdetect`. The bus number can change between boots, so it is never hardcoded.
 - **Disk mapping.** Each drive is matched to its LED by its sysfs path: the SATA port for the 2.5" bays, the PCIe root port for the M.2 slots. Kernel names like `nvme0n1` can swap between boots, so the daemon doesn't rely on them.
+- **Writes.** The controller seems to drop writes that arrive back to back, so the daemon leaves 3 ms between writes. Where a register reads back (blink, strip, `0xA0`, `0xA1`), it checks the value and writes again if it didn't arrive.
 - **Activity.** Disk activity comes from `/proc/diskstats` and network activity from `/sys/class/net/<if>/statistics`, both as counter deltas with wraparound handled. The daemon samples every 100 ms and writes to the bus only when an LED changes. It re-writes every register once a minute.
 - **ZFS health.** Read from `zpool status -LP` and `zfs get keystatus` every 10 seconds.
 - **Talking to the controller.** It uses the i2c-dev SMBus ioctls directly, without calling `i2cset`. The only dependency is `libc`.

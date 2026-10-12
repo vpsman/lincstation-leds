@@ -5,7 +5,7 @@
 //! turns steady red (orange on this panel). The network LED is steady white while
 //! the link is up, flickers on traffic and is red when the link is down. The power
 //! LED shows the configured colour. The RGB strip shows the worst pool's state:
-//! ok, scrub, errors, resilver, degraded or fault (which includes a locked key).
+//! ok, scrub, errors, resilver, degraded, locked (a key not loaded) or fault.
 //!
 //! On SIGTERM or SIGINT the daemon leaves the panel in a defined state: disk and
 //! network LEDs off, power LED white, strip off, no LED blinking.
@@ -250,6 +250,7 @@ fn main() -> ExitCode {
             zfs::Level::Errors => cfg.strip_errors,
             zfs::Level::Resilver => cfg.strip_resilver,
             zfs::Level::Degraded => cfg.strip_degraded,
+            zfs::Level::Locked => cfg.strip_locked,
             zfs::Level::Fault => cfg.strip_fault,
         };
 

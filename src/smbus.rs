@@ -9,6 +9,7 @@ const I2C_FUNCS: libc::c_ulong = 0x0705;
 const I2C_SMBUS: libc::c_ulong = 0x0720;
 
 const I2C_SMBUS_WRITE: u8 = 0;
+const I2C_SMBUS_READ: u8 = 1;
 const I2C_SMBUS_QUICK: u32 = 0;
 const I2C_SMBUS_BYTE_DATA: u32 = 2;
 
@@ -54,9 +55,9 @@ impl Device {
         Ok(funcs)
     }
 
-    fn smbus(&self, command: u8, size: u32, data: Option<&mut SmbusData>) -> io::Result<()> {
+    fn smbus(&self, read_write: u8, command: u8, size: u32, data: Option<&mut SmbusData>) -> io::Result<()> {
         let mut args = SmbusIoctl {
-            read_write: I2C_SMBUS_WRITE,
+            read_write,
             command,
             size,
             data: data.map_or(std::ptr::null_mut(), |d| d as *mut _),
@@ -70,13 +71,19 @@ impl Device {
 
     /// The same probe `i2cdetect` uses for this address range: an SMBus quick write.
     fn probe(&self) -> bool {
-        self.smbus(0, I2C_SMBUS_QUICK, None).is_ok()
+        self.smbus(I2C_SMBUS_WRITE, 0, I2C_SMBUS_QUICK, None).is_ok()
     }
 
     pub fn write_byte(&self, reg: u8, value: u8) -> io::Result<()> {
         let mut data = SmbusData { block: [0; 34] };
         data.block[0] = value;
-        self.smbus(reg, I2C_SMBUS_BYTE_DATA, Some(&mut data))
+        self.smbus(I2C_SMBUS_WRITE, reg, I2C_SMBUS_BYTE_DATA, Some(&mut data))
+    }
+
+    pub fn read_byte(&self, reg: u8) -> io::Result<u8> {
+        let mut data = SmbusData { block: [0; 34] };
+        self.smbus(I2C_SMBUS_READ, reg, I2C_SMBUS_BYTE_DATA, Some(&mut data))?;
+        Ok(data.block[0])
     }
 }
 

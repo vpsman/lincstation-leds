@@ -12,7 +12,9 @@ pub enum Level {
     Errors,
     Resilver,
     Degraded,
-    /// A pool FAULTED, UNAVAIL or SUSPENDED, or an encryption key not loaded.
+    /// An encrypted dataset whose key is not loaded.
+    Locked,
+    /// A pool FAULTED, UNAVAIL or SUSPENDED.
     Fault,
 }
 
@@ -107,7 +109,7 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 pub fn query() -> Option<Health> {
     let mut h = parse(&run("zpool", &["status", "-LP"])?);
     if any_locked(&run("zfs", &["get", "-H", "-o", "value", "keystatus"])?) {
-        h.level = Level::Fault;
+        h.level = h.level.max(Level::Locked);
     }
     Some(h)
 }

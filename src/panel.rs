@@ -4,6 +4,18 @@
 
 use crate::smbus::Device;
 use std::io;
+use std::thread::sleep;
+use std::time::Duration;
+
+/// Pause after every write. Back-to-back writes appear to be dropped by the
+/// controller; every shell test had milliseconds between writes.
+const WRITE_GAP: Duration = Duration::from_millis(3);
+const WRITE_ATTEMPTS: u32 = 3;
+
+/// Registers that read back the last value written (seen in an i2cdump on pve3).
+fn reads_back(reg: u8) -> bool {
+    matches!(reg, 0x50..=0x5F | 0x90..=0x9A | 0xA0 | 0xA1)
+}
 
 pub const ADDR: u16 = 0x26;
 
@@ -130,11 +142,34 @@ pub struct Panel {
     dev: Device,
     shown: Frame,
     strip: Option<Strip>,
+    mismatches: u64,
 }
 
 impl Panel {
     pub fn new(dev: Device) -> Panel {
-        Panel { dev, shown: Frame::default(), strip: None }
+        Panel { dev, shown: Frame::default(), strip: None, mismatches: 0 }
+    }
+
+    /// Writes one register, then checks it where the controller allows reading back,
+    /// writing again if the value did not arrive.
+    fn write(&mut self, reg: u8, value: u8) -> io::Result<()> {
+        for _ in 0..WRITE_ATTEMPTS {
+            self.dev.write_byte(reg, value)?;
+            sleep(WRITE_GAP);
+            if !reads_back(reg) {
+                return Ok(());
+            }
+            match self.dev.read_byte(reg) {
+                Ok(v) if v != value => {
+                    self.mismatches += 1;
+                    if self.mismatches.is_power_of_two() {
+                        eprintln!("register {reg:#04x}: wrote {value:#04x}, read back {v:#04x} ({} mismatches so far)", self.mismatches);
+                    }
+                }
+                _ => return Ok(()),
+            }
+        }
+        Err(io::Error::other(format!("register {reg:#04x} did not take {value:#04x}")))
     }
 
     pub fn bus(&self) -> u32 {
@@ -144,11 +179,11 @@ impl Panel {
     /// Writes every register, whatever was shown before: blink off, LEDs, strip.
     pub fn force(&mut self, frame: &Frame, strip: Strip) -> io::Result<()> {
         for r in BLINK {
-            self.dev.write_byte(r, 0)?;
+            self.write(r, 0)?;
         }
         for i in 0..2 {
-            self.dev.write_byte(OFF[i], !frame.bits[i])?;
-            self.dev.write_byte(ON[i], frame.bits[i])?;
+            self.write(OFF[i], !frame.bits[i])?;
+            self.write(ON[i], frame.bits[i])?;
         }
         self.shown = *frame;
         self.strip = None;
@@ -158,7 +193,7 @@ impl Panel {
     /// Writes only what differs from the last successful write.
     pub fn show(&mut self, frame: &Frame, strip: Strip) -> io::Result<()> {
         for (reg, mask) in diff(&self.shown, frame) {
-            self.dev.write_byte(reg, mask)?;
+            self.write(reg, mask)?;
         }
         self.shown = *frame;
         if self.strip != Some(strip) {
@@ -169,10 +204,10 @@ impl Panel {
                 (STRIP_RGB, strip.rgb.to_vec())
             };
             for (i, v) in colours.iter().enumerate() {
-                self.dev.write_byte(base + i as u8, *v)?;
+                self.write(base + i as u8, *v)?;
             }
-            self.dev.write_byte(STRIP_BRIGHTNESS, strip.brightness)?;
-            self.dev.write_byte(STRIP_MODE, strip.mode)?;
+            self.write(STRIP_BRIGHTNESS, strip.brightness)?;
+            self.write(STRIP_MODE, strip.mode)?;
             self.strip = Some(strip);
         }
         Ok(())
