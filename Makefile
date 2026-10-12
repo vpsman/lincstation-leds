@@ -1,4 +1,4 @@
-# Build and install on the NAS itself. Run "make install" and "make uninstall" as root.
+# Build as a normal user with "make"; then "sudo make install" or "sudo make uninstall".
 
 BIN = target/release/lincstation-leds
 

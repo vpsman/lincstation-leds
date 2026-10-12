@@ -30,15 +30,15 @@ When the daemon stops (SIGTERM or SIGINT), it turns the disk and network LEDs of
 You need Rust 1.82 or newer. Debian 13's `cargo` package is new enough.
 
 ```sh
-apt install git cargo
-git clone https://github.com/vpsman/lincstation-leds.git
+sudo apt install git cargo
+cd ~ && git clone https://github.com/vpsman/lincstation-leds.git
 cd lincstation-leds
-make            # cargo build --release --locked
-make test       # optional: unit tests
-make install    # as root: installs, enables and starts the service
+make              # cargo build --release --locked, as your normal user
+make test         # optional: unit tests
+sudo make install # installs, enables and starts the service
 ```
 
-`make install` puts the binary in `/usr/sbin`, the unit in `/etc/systemd/system` and an `i2c-dev` entry in `/etc/modules-load.d/`. It also installs `/etc/lincstation-leds.conf` if that file doesn't exist yet. `make uninstall` removes everything except the config file.
+`make install` puts the binary in `/usr/sbin`, the unit in `/etc/systemd/system` and an `i2c-dev` entry in `/etc/modules-load.d/`. It also installs `/etc/lincstation-leds.conf` if that file doesn't exist yet. Build as your normal user and use `sudo` only for `make install`, because building as root would run the build scripts of downloaded crates as root. `sudo make uninstall` removes everything except the config file.
 
 ### Or as a .deb
 
