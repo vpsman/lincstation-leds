@@ -13,6 +13,8 @@ pub struct Config {
     pub interval_ms: u64,
     pub zfs_interval_s: u64,
     pub power: Colour,
+    /// What a healthy disk LED blinks to on I/O; it is steady white when idle.
+    pub disk_activity: Colour,
     pub strip_ok: Strip,
     pub strip_fault: Strip,
 }
@@ -26,6 +28,7 @@ impl Default for Config {
             interval_ms: 100,
             zfs_interval_s: 10,
             power: panel::WHITE,
+            disk_activity: panel::OFF_C,
             strip_ok: Strip { mode: panel::MODE_SOLID, brightness: 12, rgb: [160, 0, 255] },
             strip_fault: Strip { mode: panel::MODE_BREATH, brightness: 160, rgb: [255, 0, 0] },
         }
@@ -42,6 +45,17 @@ fn num(s: &str) -> Result<u64, String> {
 
 fn byte(s: &str) -> Result<u8, String> {
     u8::try_from(num(s)?).map_err(|_| format!("out of range 0-255: {s}"))
+}
+
+/// A status LED colour. On the N2 red looks orange and white+red looks pink.
+fn colour(s: &str) -> Result<Colour, String> {
+    match s {
+        "white" => Ok(panel::WHITE),
+        "red" | "orange" => Ok(panel::RED),
+        "white+red" | "pink" => Ok(Colour { white: true, red: true }),
+        "off" => Ok(panel::OFF_C),
+        _ => Err(format!("expected white, orange, pink or off: {s}")),
+    }
 }
 
 /// "R G B BRIGHTNESS".
@@ -68,15 +82,8 @@ pub fn parse(text: &str) -> Result<Config, String> {
             "net_threshold" => c.net_threshold = num(value).map_err(err)?,
             "interval_ms" => c.interval_ms = num(value).map_err(err)?.clamp(20, 5000),
             "zfs_interval_s" => c.zfs_interval_s = num(value).map_err(err)?.max(1),
-            "power" => {
-                c.power = match value {
-                    "white" => panel::WHITE,
-                    "red" => panel::RED,
-                    "white+red" => Colour { white: true, red: true },
-                    "off" => panel::OFF_C,
-                    _ => return Err(err(format!("power: white, red, white+red or off: {value}"))),
-                }
-            }
+            "power" => c.power = colour(value).map_err(err)?,
+            "disk_activity" => c.disk_activity = colour(value).map_err(err)?,
             "strip_ok" => c.strip_ok = strip(value, panel::MODE_SOLID).map_err(err)?,
             "strip_fault" => c.strip_fault = strip(value, panel::MODE_BREATH).map_err(err)?,
             _ => match Led::from_name(key) {
@@ -100,6 +107,7 @@ mod tests {
         assert_eq!(c.slots[2], (Led::Nvme1, "0000:00:1c.3".to_string()));
         assert_eq!(c.net_iface, None);
         assert_eq!(c.strip_ok, Config::default().strip_ok);
+        assert_eq!(c.disk_activity, panel::OFF_C);
     }
 
     #[test]
@@ -107,7 +115,8 @@ mod tests {
         let c = parse(
             "nvme3 = 0000:00:1c.6  # slot 3\n\
              net_iface = enp1s0\n\
-             power = white+red\n\
+             power = pink\n\
+             disk_activity = white+red\n\
              strip_ok = 0x40 0 0xff 16\n\
              interval_ms = 1\n",
         )
@@ -115,6 +124,7 @@ mod tests {
         assert_eq!(c.slots, vec![(Led::Nvme3, "0000:00:1c.6".to_string())]);
         assert_eq!(c.net_iface.as_deref(), Some("enp1s0"));
         assert_eq!(c.power, Colour { white: true, red: true });
+        assert_eq!(c.disk_activity, c.power);
         assert_eq!(c.strip_ok, Strip { mode: panel::MODE_SOLID, brightness: 16, rgb: [0x40, 0, 0xff] });
         assert_eq!(c.interval_ms, 20);
     }
@@ -123,6 +133,7 @@ mod tests {
     fn errors_name_the_line() {
         assert_eq!(parse("\nnetwork = x\n").unwrap_err(), "line 2: unknown key: network");
         assert!(parse("strip_ok = 1 2 3\n").unwrap_err().contains("R G B"));
+        assert!(parse("power = purple\n").unwrap_err().contains("expected white"));
         assert!(parse("strip_ok = 1 2 3 256\n").unwrap_err().contains("0-255"));
     }
 }

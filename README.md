@@ -8,7 +8,7 @@ A small daemon for the front-panel LEDs and RGB strip of the LincPlus LincStatio
 
 | LED | Meaning |
 |---|---|
-| Disk (HDD 0/1, NVMe 1–4) | Off when idle. Flickers white on I/O. Steady red while the disk's ZFS pool is not ONLINE, or the disk itself is faulted or removed. |
+| Disk (HDD 0/1, NVMe 1–4) | Steady white while healthy. Blinks to `disk_activity` (off by default, or pink) on I/O. Steady orange while the disk's ZFS pool is not ONLINE, or the disk itself is faulted or removed. Empty slots stay dark. |
 | Network | Steady white while the link is up. Flickers on traffic above `net_threshold` bytes per second. Red when the link is down. |
 | Power | The `power` colour from the config file, white by default. |
 | RGB strip | `strip_ok` (dim purple by default) while every pool is ONLINE, `strip_fault` (breathing red) otherwise. |
@@ -82,6 +82,8 @@ Every write goes to SMBus address `0x26`. This map comes from [ffalt's reverse-e
 
 - The on and off registers accept multi-bit masks, for example `0xFF` to turn everything off.
 - Writing 0 to every blink register stops the power-on blinking.
+- The odd registers next to the blink registers (`0x51`, `0x53` … `0x5F`, one per LED) are not in the gist. Writing 1 makes that LED cycle white → pink → orange about once a second, with or without blink, whatever it was showing. They accept only 0 and 1. Confirmed on the power LED (`0x51`) and HDD 0 (`0x53`). This daemon doesn't use them.
+- No other status LED colours turned up: each LED appears to have only a white and a red element.
 - Strip: `0x90` sets the mode (0 solid, 1 breath, 2 loop) and `0x91` the brightness (0 turns the strip off). `0x92`–`0x94` hold the colour in **R, G, B** order. Loop mode cycles between colour 1 at `0x95`–`0x97` and colour 2 at **`0x98`–`0x9A`**; the gist's register list wrongly gives `0x95`–`0x97` for both.
 
 ## Prior art

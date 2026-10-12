@@ -1,7 +1,8 @@
 //! LED daemon for the LincStation N2 front panel.
 //!
-//! Disk LEDs flicker white on I/O and turn steady red (orange on this panel)
-//! while the disk's ZFS pool is unhealthy. The network LED is steady white while
+//! Disk LEDs are steady white while healthy and blink to `disk_activity` (off by
+//! default) on I/O. They turn steady red (orange on this panel) while the disk's
+//! ZFS pool is unhealthy. The network LED is steady white while
 //! the link is up, flickers on traffic and is red when the link is down. The power
 //! LED shows the configured colour. The RGB strip shows `strip_ok` while all pools
 //! are ONLINE and `strip_fault` otherwise.
@@ -59,7 +60,8 @@ struct Disk {
     name: String,
     led: Led,
     prev: Option<u64>,
-    lit: bool,
+    /// Showing the activity colour in this sample.
+    blink: bool,
 }
 
 fn map_disks(cfg: &config::Config, old: &[Disk], announce: bool) -> Vec<Disk> {
@@ -74,7 +76,7 @@ fn map_disks(cfg: &config::Config, old: &[Disk], announce: bool) -> Vec<Disk> {
         }
         let Some(led) = led else { continue };
         let prev = old.iter().find(|d| d.name == name && d.led == led).and_then(|d| d.prev);
-        out.push(Disk { name, led, prev, lit: false });
+        out.push(Disk { name, led, prev, blink: false });
     }
     out
 }
@@ -229,13 +231,13 @@ fn main() -> ExitCode {
             let ios = stats::disk_ios(table, &d.name);
             let active = matches!((d.prev, ios), (Some(p), Some(c)) if stats::delta(p, c) > 0);
             d.prev = ios;
-            d.lit = active && !d.lit;
+            d.blink = active && !d.blink;
             let colour = if bad_disks.contains(&d.name) {
                 panel::RED
-            } else if d.lit {
-                panel::WHITE
+            } else if d.blink {
+                cfg.disk_activity
             } else {
-                panel::OFF_C
+                panel::WHITE
             };
             frame.set(d.led, colour);
         }
