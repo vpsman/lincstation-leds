@@ -13,7 +13,7 @@ A small daemon for the front-panel LEDs and RGB strip of the LincPlus LincStatio
 | Power | The `power` colour from the config file, white by default. |
 | RGB strip | `strip_ok` (dim purple by default) while every pool is ONLINE, `strip_fault` (breathing red) otherwise. |
 
-The status LEDs have two elements each, white and red. On the test unit the red looks orange, and white plus red looks white with a faint pink tint, so the LEDs can't show other colours.
+The documented registers drive two elements per status LED, white and red. On the test unit the red looks orange, and white plus red looks close to white. Whether the controller can show any other colour is untested.
 
 When the daemon stops (SIGTERM or SIGINT), it turns the disk and network LEDs off, sets the power LED to white and switches the strip off. A stopped service is therefore visible on the panel.
 
