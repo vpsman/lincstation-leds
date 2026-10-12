@@ -30,7 +30,7 @@ When the daemon stops (SIGTERM or SIGINT), it turns the disk and network LEDs of
 You need Rust 1.82 or newer. Debian 13's `cargo` package is new enough.
 
 ```sh
-sudo apt install git cargo
+sudo apt install git cargo make
 cd ~ && git clone https://github.com/vpsman/lincstation-leds.git
 cd lincstation-leds
 make              # cargo build --release --locked, as your normal user
