@@ -69,7 +69,7 @@ fn colour(s: &str) -> Result<Colour, String> {
     }
 }
 
-const PURPLE: [u8; 3] = [160, 0, 255];
+const PURPLE: [u8; 3] = [240, 0, 220];
 const AMBER: [u8; 3] = [255, 40, 0];
 const RED: [u8; 3] = [255, 0, 0];
 
